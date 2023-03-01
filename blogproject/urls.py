@@ -24,6 +24,7 @@ import comments.views
 from blog.feeds import AllPostsRssFeed
 
 router = routers.DefaultRouter()
+# TODO 注册一个新的视图  参数：URL前缀、视图集、视图集生成的视图函数前缀，如果不指定就是model名称的小写（这个视图函数的名称就是 basename+action  post-list）
 router.register(r"posts", blog.views.PostViewSet, basename="post")
 router.register(r"categories", blog.views.CategoryViewSet, basename="category")
 router.register(r"tags", blog.views.TagViewSet, basename="tag")
@@ -34,6 +35,7 @@ router.register(
     r"api-version", blog.views.ApiVersionTestViewSet, basename="api-version"
 )
 
+# TODO 生成一个接口文档视图，然后我们将这个视图函数映射到了 4 个 URL
 schema_view = get_schema_view(
     openapi.Info(
         title="HelloDjango REST framework tutorial API",
@@ -54,6 +56,10 @@ urlpatterns = [
     path("", include("comments.urls")),
     # 记得在顶部引入 AllPostsRssFeed
     path("all/rss/", AllPostsRssFeed(), name="rss"),
+
+    # TODO api版本管理  NamespaceVersioning(namespace)  表示包含的 URL 模式均属于 v1 这个命名空间
+    #  所有请求对象 request 就会多出一个属性 version，其值为用户请求的版本号（如果没有指定，就为默认的 DEFAULT_VERSION 的值）。
+    #  因此，我们可以在请求中针对不同版本的请求执行不同的代码逻辑。
     path("api/v1/", include((router.urls, "api"), namespace="v1")),
     path("api/v2/", include((router.urls, "api"), namespace="v2")),
     path("api/auth/", include("rest_framework.urls", namespace="rest_framework")),

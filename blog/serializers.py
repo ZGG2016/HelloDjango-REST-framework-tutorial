@@ -34,10 +34,12 @@ class TagSerializer(serializers.ModelSerializer):
         ]
 
 
+# TODO 要根据被序列化对象属性的数据类型，选择合适的序列化字段
 class PostListSerializer(serializers.ModelSerializer):
     category = CategorySerializer()
     author = UserSerializer()
 
+    # TODO 会根据绑定的模型里的字段，自动推断fields列表里序列化字段的类型（在ModelSerializer类中定义了映射关系）
     class Meta:
         model = Post
         fields = [
@@ -55,6 +57,7 @@ class PostRetrieveSerializer(serializers.ModelSerializer):
     category = CategorySerializer()
     author = UserSerializer()
     tags = TagSerializer(many=True)
+    # TODO 无法推断其值的类型,人工指定该使用何种类型的序列化字段
     toc = serializers.CharField(label="文章目录", help_text="HTML 格式，每个目录条目均由 li 标签包裹。")
     body_html = serializers.CharField(
         label="文章内容", help_text="HTML 格式，从 `body` 字段解析而来。"

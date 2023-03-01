@@ -8,7 +8,7 @@ from drf_yasg.inspectors import FilterInspector
 from drf_yasg.utils import swagger_auto_schema
 from pure_pagination.mixins import PaginationMixin
 from rest_framework import mixins, status, viewsets
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view
 from rest_framework.generics import ListAPIView
 from rest_framework.pagination import LimitOffsetPagination, PageNumberPagination
 from rest_framework.permissions import AllowAny
@@ -93,7 +93,10 @@ class CommentUpdatedAtKeyBit(UpdatedAtKeyBit):
     key = "comment_updated_at"
 
 
+# TODO 这个KeyConstructor包含了生成的key的逻辑和由key取值的逻辑
 class PostListKeyConstructor(DefaultKeyConstructor):
+    # TODO 一个 keybit 理解为 key 生成规则中的某一项规则定义
+    #  自定义缓存 key 的 KeyBit
     list_sql = ListSqlQueryKeyBit()
     pagination = PaginationKeyBit()
     updated_at = PostUpdatedAtKeyBit()
@@ -110,9 +113,24 @@ class CommentListKeyConstructor(DefaultKeyConstructor):
     updated_at = CommentUpdatedAtKeyBit()
 
 
+# TODO api_view装饰器将index视图函数转变成一个类视图，并且会给这个类视图很多属性，比如认证、权限等。不写http_method_names的话，默认是get请求
+@api_view(http_method_names=['get'])
+def index(request):
+    post_list = Post.objects.all().order_by("-created_time")
+    # TODO 构造序列化器时可以传入单个对象，序列化器会将其序列化为一个字典；
+    #      也可以传入包含多个对象的可迭代类型
+    #      （这里的 post_list 是一个 django 的 QuerySet），此时需要设置 many 参数为 True 序列化器会依次序列化每一项，返回一个列表。
+    serializer = PostListSerializer(post_list, many=True)
+
+    return Response(serializer.data,  status=status.HTTP_200_OK)
+
+
 class IndexPostListAPIView(ListAPIView):
+    # TODO 基本没有写任何逻辑代码，只是指定了类视图的几个属性值。通用类视图在背后帮我们做了全部工作，我们只要告诉它：用哪个序列化器去做，序列化哪个资源等就可以了
     serializer_class = PostListSerializer
     queryset = Post.objects.all()
+    # TODO 不使用指定的全局分页类，
+    #  自己指定一个 pagination_class = LimitOffsetPagination，发送 API 请求：/posts/?offset=20&limit=5，将获取文章资源列表第 20 篇后的 5 篇文章
     pagination_class = PageNumberPagination
     permission_classes = [AllowAny]
 
@@ -143,14 +161,23 @@ class PostViewSet(
         "list": PostListSerializer,
         "retrieve": PostRetrieveSerializer,
     }
+    # TODO  在DjangoFilterBackend中，使用PostFilter中定义的规则过滤queryset
     filter_backends = [DjangoFilterBackend]
     filterset_class = PostFilter
 
+    # TODO 因为处理不同的action，根据不同的action使用不同的序列化器
     def get_serializer_class(self):
         return self.serializer_class_table.get(
             self.action, super().get_serializer_class()
         )
 
+    """
+    请求被缓存的逻辑：
+        1. 请求文章列表接口
+        2. 根据 PostListKeyConstructor 生成缓存 key，如果使用这个 key 读取到了缓存结果，就直接返回读取到的结果，否则从数据库查询结果，并把查询的结果写入缓存。
+        3. 再次请求文章列表接口，PostListKeyConstructor 将生成同样的缓存 key，这时就可以直接从缓存中读到结果并返回了。
+    """
+    # TODO 启用缓存功能，timeout缓存失效时间  key_func是缓存key的生成规则
     @cache_response(timeout=5 * 60, key_func=PostListKeyConstructor())
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
@@ -160,17 +187,22 @@ class PostViewSet(
         return super().retrieve(request, *args, **kwargs)
 
     @swagger_auto_schema(responses={200: "归档日期列表，时间倒序排列。例如：['2020-08', '2020-06']。"})
+    # TODO 用来装饰一个视图集 中的方法，被装饰的方法会被 django-rest-framework 的路由自动注册为一个 API 接口
+    #      像上面的list retrieve方法被自动注册为标准的 API 接口，不使用action装饰器
+    #      还可以在 action 中设置所有 ViewSet 类所支持的类属性，例如 serializer_class、pagination_class、permission_classes 等，用于覆盖类视图中设置的属性值
     @action(
         methods=["GET"],
         detail=False,
-        url_path="archive/dates",
-        url_name="archive-date",
-        filter_backends=None,
-        pagination_class=None,
+        url_path="archive/dates",  # TODO 自动注册的接口 URL
+        url_name="archive-date",   # TODO 接口名
+        # filter_backends=None,
+        # pagination_class=None,
     )
     def list_archive_dates(self, request, *args, **kwargs):
+        # TODO 取出所有的created_time字段的日期部分，精确到月份
         dates = Post.objects.dates("created_time", "month", order="DESC")
         date_field = DateField()
+        # TODO 使用to_representation序列化一个字段
         data = [date_field.to_representation(date)[:7] for date in dates]
         return Response(data=data, status=status.HTTP_200_OK)
 
@@ -180,7 +212,7 @@ class PostViewSet(
         detail=True,
         url_path="comments",
         url_name="comment",
-        filter_backends=None,  # 移除从 PostViewSet 自动继承的 filter_backends，这样 drf-yasg 就不会生成过滤参数
+        # filter_backends=None,  # 移除从 PostViewSet 自动继承的 filter_backends，这样 drf-yasg 就不会生成过滤参数
         suffix="List",  # 将这个 action 返回的结果标记为列表，否则 drf-yasg 会根据 detail=True 将结果误判为单个对象
         pagination_class=LimitOffsetPagination,
         serializer_class=CommentSerializer,
@@ -198,7 +230,9 @@ class PostViewSet(
         return self.get_paginated_response(serializer.data)
 
 
-index = PostViewSet.as_view({"get": "list"})
+# TODO 从视图集生成视图函数，并绑定 URL
+#     字典参数就是 as_view 的action参数，将get请求和list action绑定
+# index = PostViewSet.as_view({"get": "list"})
 
 
 class CategoryViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
@@ -234,6 +268,7 @@ class TagViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
 
 
 class PostSearchAnonRateThrottle(AnonRateThrottle):
+    # TODO 限流 单个视图设置
     THROTTLE_RATES = {"anon": "5/min"}
 
 
@@ -250,6 +285,7 @@ class PostSearchFilterInspector(FilterInspector):
         ]
 
 
+# TODO 在接口文档中隐藏指定视图
 @method_decorator(
     name="retrieve",
     decorator=swagger_auto_schema(
@@ -273,10 +309,12 @@ class PostSearchView(HaystackViewSet):
 
     index_models = [Post]
     serializer_class = PostHaystackSerializer
+    # 限流
     throttle_classes = [PostSearchAnonRateThrottle]
 
 
 class ApiVersionTestViewSet(viewsets.ViewSet):  # pragma: no cover
+    # TODO 在接口文档中隐藏下面的接口
     swagger_schema = None
 
     @action(

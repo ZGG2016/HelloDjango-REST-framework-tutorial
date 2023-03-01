@@ -11,6 +11,7 @@ ALLOWED_HOSTS = [
 ]
 HAYSTACK_CONNECTIONS["default"]["URL"] = "http://elasticsearch:9200/"
 
+# TODO 生产环境 redis缓存
 CACHES = {
     "default": {
         "BACKEND": "redis_cache.RedisCache",
